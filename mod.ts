@@ -57,6 +57,7 @@ export type {
     PublisherOptions,
     ConsumerOptions,
     MessageHandler,
+    ConsumeMessage,
     ConnectionState,
     Metrics,
     ResilientConnection,

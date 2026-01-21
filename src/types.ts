@@ -1,5 +1,7 @@
 import type { Channel, ConfirmChannel, ConsumeMessage, ChannelModel } from "amqplib";
 
+export type { ConsumeMessage };
+
 /**
  * Configuration for connecting to a RabbitMQ broker.
  */
