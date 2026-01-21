@@ -4,6 +4,9 @@
  * This example demonstrates how to create a resilient RabbitMQ publisher
  * that sends messages to an exchange with publisher confirms.
  *
+ * The publisher automatically recovers when the connection is restored
+ * after a disconnect - no manual intervention needed.
+ *
  * Run with: deno run --allow-net --allow-env examples/publisher.ts
  */
 

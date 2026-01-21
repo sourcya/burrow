@@ -1,6 +1,9 @@
 /**
  * Burrow - A resilient RabbitMQ client with auto-reconnect, retries, and metrics.
  *
+ * All components (Publisher, Consumer, Bridge) automatically recover when the
+ * connection is restored after a disconnect.
+ *
  * @module
  * @example
  * ```typescript
@@ -13,11 +16,11 @@
  *   onDisconnect: () => console.log("Disconnected!"),
  * });
  *
- * // Create a publisher
+ * // Create a publisher (auto-recovers on reconnect)
  * const publisher = await createPublisher(conn, { exchange: "events" });
  * await publisher.publish("user.created", { id: 1, name: "John" });
  *
- * // Create a consumer
+ * // Create a consumer (auto-resumes on reconnect if was active)
  * const consumer = await createConsumer(conn, {
  *   queue: "my-queue",
  *   exchange: "events",
@@ -27,7 +30,7 @@
  * });
  * await consumer.start();
  *
- * // Create a bridge between two brokers
+ * // Create a bridge (auto-restarts when both connections restore)
  * const source = await createConnection({ connection: { hostname: "broker1" } });
  * const target = await createConnection({ connection: { hostname: "broker2" } });
  * const bridge = createBridge({
@@ -36,6 +39,9 @@
  *   exchanges: ["events", "notifications"],
  * });
  * await bridge.start();
+ *
+ * // Subscribe to reconnection events
+ * const unsubscribe = conn.onReconnect(() => console.log("Reconnected!"));
  *
  * // Get metrics
  * console.log(conn.getMetrics());
@@ -61,6 +67,7 @@ export type {
     BridgeMetrics,
     BridgeState,
     Bridge,
+    Unsubscribe,
 } from "./src/types.ts";
 
 // Logger

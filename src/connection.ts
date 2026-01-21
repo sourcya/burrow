@@ -7,6 +7,7 @@ import type {
     ResilientConnection,
     ConnectionState,
     Metrics,
+    Unsubscribe,
 } from "./types.ts";
 import { logger as defaultLogger } from "./logger.ts";
 import { createMetricsCollector } from "./metrics.ts";
@@ -48,6 +49,7 @@ interface ConnectionManagerState {
     connection: ChannelModel | null;
     state: ConnectionState;
     isShuttingDown: boolean;
+    reconnectSubscribers: Set<() => void>;
 }
 
 /**
@@ -86,6 +88,7 @@ export const createConnection = async (
         connection: null,
         state: "disconnected",
         isShuttingDown: false,
+        reconnectSubscribers: new Set(),
     };
 
     /**
@@ -157,6 +160,15 @@ export const createConnection = async (
 
                 if (options.onConnect) {
                     options.onConnect();
+                }
+
+                for (const subscriber of state.reconnectSubscribers) {
+                    try {
+                        subscriber();
+                    } catch (err) {
+                        const message = err instanceof Error ? err.message : String(err);
+                        log.error("[burrow] Reconnect subscriber error:", message);
+                    }
                 }
 
                 return;
@@ -283,6 +295,18 @@ export const createConnection = async (
      */
     const getMetrics = (): Metrics => metrics.getMetrics();
 
+    /**
+     * Subscribe to reconnection events.
+     * @param callback - Function to call when reconnected
+     * @returns Unsubscribe function
+     */
+    const onReconnect = (callback: () => void): Unsubscribe => {
+        state.reconnectSubscribers.add(callback);
+        return () => {
+            state.reconnectSubscribers.delete(callback);
+        };
+    };
+
     // Initial connection
     await connectWithRetry();
 
@@ -294,5 +318,6 @@ export const createConnection = async (
         createConfirmChannel,
         close,
         getMetrics,
+        onReconnect,
     };
 };

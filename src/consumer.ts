@@ -4,6 +4,7 @@ import type {
     Consumer,
     ConsumerOptions,
     Metrics,
+    Unsubscribe,
 } from "./types.ts";
 import { logger as defaultLogger } from "./logger.ts";
 
@@ -23,9 +24,11 @@ interface ConsumerState {
     channel: Channel | null;
     consumerTag: string | null;
     isActive: boolean;
+    wasActive: boolean;
     messagesConsumed: number;
     messagesConsumeFailed: number;
     lastConsumeAt: Date | null;
+    unsubscribeReconnect: Unsubscribe | null;
 }
 
 /**
@@ -65,9 +68,11 @@ export const createConsumer = async (
         channel: null,
         consumerTag: null,
         isActive: false,
+        wasActive: false,
         messagesConsumed: 0,
         messagesConsumeFailed: 0,
         lastConsumeAt: null,
+        unsubscribeReconnect: null,
     };
 
     /**
@@ -75,6 +80,15 @@ export const createConsumer = async (
      * @returns Promise that resolves when ready
      */
     const setup = async (): Promise<void> => {
+        if (state.channel) {
+            try {
+                await state.channel.close();
+            } catch {
+                // Channel may already be closed
+            }
+            state.channel = null;
+        }
+
         state.channel = await connection.createChannel();
 
         if (!state.channel) {
@@ -96,12 +110,30 @@ export const createConsumer = async (
 
         state.channel.on("close", () => {
             log.warn(`[burrow:consumer] Channel closed for queue ${opts.queue}`);
+            state.wasActive = state.isActive;
             state.isActive = false;
             state.channel = null;
             state.consumerTag = null;
         });
 
         log.info(`[burrow:consumer] Setup complete for queue ${opts.queue}`);
+    };
+
+    /**
+     * Handle reconnection by re-setting up and resuming if was active.
+     */
+    const handleReconnect = async (): Promise<void> => {
+        log.info(`[burrow:consumer] Connection restored, re-setting up queue ${opts.queue}`);
+        try {
+            await setup();
+            if (state.wasActive) {
+                await startConsuming();
+                log.info(`[burrow:consumer] Resumed consuming from ${opts.queue}`);
+            }
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            log.error(`[burrow:consumer] Failed to re-setup after reconnect:`, message);
+        }
     };
 
     /**
@@ -136,6 +168,24 @@ export const createConsumer = async (
     };
 
     /**
+     * Internal function to start consuming.
+     */
+    const startConsuming = async (): Promise<void> => {
+        if (!state.channel) {
+            throw new Error("No channel available");
+        }
+
+        const { consumerTag } = await state.channel.consume(
+            opts.queue,
+            handleMessage
+        );
+
+        state.consumerTag = consumerTag;
+        state.isActive = true;
+        state.wasActive = true;
+    };
+
+    /**
      * Start consuming messages.
      * @returns Promise that resolves when consuming
      */
@@ -153,13 +203,7 @@ export const createConsumer = async (
             return;
         }
 
-        const { consumerTag } = await state.channel.consume(
-            opts.queue,
-            handleMessage
-        );
-
-        state.consumerTag = consumerTag;
-        state.isActive = true;
+        await startConsuming();
         log.info(`[burrow:consumer] Started consuming from ${opts.queue}`);
     };
 
@@ -179,6 +223,29 @@ export const createConsumer = async (
         }
         state.consumerTag = null;
         state.isActive = false;
+        state.wasActive = false;
+    };
+
+    /**
+     * Close the consumer and clean up resources.
+     * @returns Promise that resolves when closed
+     */
+    const close = async (): Promise<void> => {
+        if (state.unsubscribeReconnect) {
+            state.unsubscribeReconnect();
+            state.unsubscribeReconnect = null;
+        }
+
+        await stop();
+
+        if (state.channel) {
+            try {
+                await state.channel.close();
+            } catch {
+                // Channel may already be closed
+            }
+            state.channel = null;
+        }
     };
 
     /**
@@ -200,9 +267,18 @@ export const createConsumer = async (
     // Initial setup
     await setup();
 
+    // Subscribe to reconnection events
+    state.unsubscribeReconnect = connection.onReconnect(() => {
+        handleReconnect().catch((err) => {
+            const message = err instanceof Error ? err.message : String(err);
+            log.error(`[burrow:consumer] Reconnect handler error:`, message);
+        });
+    });
+
     return {
         start,
         stop,
+        close,
         isActive,
         getMetrics,
     };

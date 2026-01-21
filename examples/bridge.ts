@@ -4,6 +4,9 @@
  * This example demonstrates how to create a message bridge that forwards
  * messages from one RabbitMQ broker to another using createBridge.
  *
+ * The bridge automatically restarts when both source and target connections
+ * are restored after a disconnect.
+ *
  * Run with: deno run --allow-net --allow-env examples/bridge.ts
  */
 
@@ -75,10 +78,10 @@ async function main() {
     Deno.addSignalListener("SIGINT", async () => {
         console.log("\nShutting down bridge...");
         clearInterval(metricsInterval);
-        await bridge.stop();
+        const metrics = bridge.getMetrics();
+        await bridge.close();
         await source.close();
         await target.close();
-        const metrics = bridge.getMetrics();
         console.log(`Final stats: forwarded=${metrics.messagesForwarded}, failed=${metrics.messagesFailed}`);
         console.log("Goodbye!");
         Deno.exit(0);

@@ -5,6 +5,7 @@ import type {
     Publisher,
     PublisherOptions,
     Metrics,
+    Unsubscribe,
 } from "./types.ts";
 import { logger as defaultLogger } from "./logger.ts";
 
@@ -27,6 +28,7 @@ interface PublisherState {
     messagesPublished: number;
     messagesPublishFailed: number;
     lastPublishAt: Date | null;
+    unsubscribeReconnect: Unsubscribe | null;
 }
 
 /**
@@ -61,6 +63,7 @@ export const createPublisher = async (
         messagesPublished: 0,
         messagesPublishFailed: 0,
         lastPublishAt: null,
+        unsubscribeReconnect: null,
     };
 
     /**
@@ -68,6 +71,15 @@ export const createPublisher = async (
      * @returns Promise that resolves when ready
      */
     const setup = async (): Promise<void> => {
+        if (state.channel) {
+            try {
+                await state.channel.close();
+            } catch {
+                // Channel may already be closed
+            }
+            state.channel = null;
+        }
+
         state.channel = await connection.createConfirmChannel();
 
         if (!state.channel) {
@@ -86,6 +98,17 @@ export const createPublisher = async (
 
         state.isReady = true;
         log.info(`[burrow:publisher] Ready on exchange ${opts.exchange}`);
+    };
+
+    /**
+     * Handle reconnection by re-setting up the channel.
+     */
+    const handleReconnect = (): void => {
+        log.info(`[burrow:publisher] Connection restored, re-setting up exchange ${opts.exchange}`);
+        setup().catch((err) => {
+            const message = err instanceof Error ? err.message : String(err);
+            log.error(`[burrow:publisher] Failed to re-setup after reconnect:`, message);
+        });
     };
 
     /**
@@ -144,6 +167,11 @@ export const createPublisher = async (
      * @returns Promise that resolves when closed
      */
     const close = async (): Promise<void> => {
+        if (state.unsubscribeReconnect) {
+            state.unsubscribeReconnect();
+            state.unsubscribeReconnect = null;
+        }
+
         if (state.channel) {
             try {
                 await state.channel.close();
@@ -169,6 +197,9 @@ export const createPublisher = async (
 
     // Initial setup
     await setup();
+
+    // Subscribe to reconnection events
+    state.unsubscribeReconnect = connection.onReconnect(handleReconnect);
 
     return {
         publish,

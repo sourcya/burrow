@@ -4,6 +4,7 @@ import type {
     BridgeMetrics,
     BridgeState,
     Bridge,
+    Unsubscribe,
 } from "./types.ts";
 import { logger as log } from "./logger.ts";
 
@@ -24,6 +25,7 @@ interface BridgeInternalState {
     consumerChannel: Channel | null;
     producerChannel: ConfirmChannel | null;
     isRunning: boolean;
+    wasRunning: boolean;
     consumerTags: string[];
     metrics: {
         messagesForwarded: number;
@@ -32,6 +34,8 @@ interface BridgeInternalState {
     };
     errorLogCount: number;
     lastErrorLogReset: number;
+    unsubscribeSource: Unsubscribe | null;
+    unsubscribeTarget: Unsubscribe | null;
 }
 
 const ERROR_LOG_LIMIT = 10;
@@ -66,6 +70,7 @@ export const createBridge = (options: BridgeOptions): Bridge => {
         consumerChannel: null,
         producerChannel: null,
         isRunning: false,
+        wasRunning: false,
         consumerTags: [],
         metrics: {
             messagesForwarded: 0,
@@ -74,6 +79,8 @@ export const createBridge = (options: BridgeOptions): Bridge => {
         },
         errorLogCount: 0,
         lastErrorLogReset: Date.now(),
+        unsubscribeSource: null,
+        unsubscribeTarget: null,
     };
 
     /**
@@ -193,6 +200,28 @@ export const createBridge = (options: BridgeOptions): Bridge => {
     };
 
     /**
+     * Close channels safely, ignoring errors.
+     */
+    const closeChannels = async (): Promise<void> => {
+        if (state.consumerChannel) {
+            try {
+                await state.consumerChannel.close();
+            } catch {
+                // Channel may already be closed
+            }
+            state.consumerChannel = null;
+        }
+        if (state.producerChannel) {
+            try {
+                await state.producerChannel.close();
+            } catch {
+                // Channel may already be closed
+            }
+            state.producerChannel = null;
+        }
+    };
+
+    /**
      * Start the bridge.
      * @returns Whether the bridge started successfully
      */
@@ -202,11 +231,16 @@ export const createBridge = (options: BridgeOptions): Bridge => {
             return false;
         }
 
-        if (!state.consumerChannel) {
+        await closeChannels();
+
+        try {
             state.consumerChannel = await options.source.createChannel();
-        }
-        if (!state.producerChannel) {
             state.producerChannel = await options.target.createConfirmChannel();
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            log.warn(`[bridge] Cannot start - failed to create channels: ${message}`);
+            await closeChannels();
+            return false;
         }
 
         if (!state.consumerChannel || !state.producerChannel) {
@@ -239,6 +273,7 @@ export const createBridge = (options: BridgeOptions): Bridge => {
         }
 
         state.isRunning = true;
+        state.wasRunning = true;
         log.info("[bridge] Started - forwarding messages");
 
         if (options.onStart) {
@@ -249,9 +284,27 @@ export const createBridge = (options: BridgeOptions): Bridge => {
     };
 
     /**
-     * Stop the bridge.
+     * Handle reconnection from either source or target.
      */
-    const stop = async (): Promise<void> => {
+    const handleReconnect = async (): Promise<void> => {
+        if (!options.source.isConnected() || !options.target.isConnected()) {
+            return;
+        }
+
+        if (state.wasRunning) {
+            log.info("[bridge] Both connections restored, restarting bridge");
+            const success = await start();
+            if (success) {
+                log.info("[bridge] Successfully restarted after reconnect");
+            }
+        }
+    };
+
+    /**
+     * Stop the bridge.
+     * @param permanent - If true, prevents auto-restart on reconnect
+     */
+    const stop = async (permanent = false): Promise<void> => {
         for (const tag of state.consumerTags) {
             try {
                 await state.consumerChannel?.cancel(tag);
@@ -261,26 +314,32 @@ export const createBridge = (options: BridgeOptions): Bridge => {
         }
         state.consumerTags.length = 0;
 
-        try {
-            await state.consumerChannel?.close();
-        } catch {
-            // Ignore errors
-        }
-        try {
-            await state.producerChannel?.close();
-        } catch {
-            // Ignore errors
-        }
-
-        state.consumerChannel = null;
-        state.producerChannel = null;
+        await closeChannels();
         state.isRunning = false;
+        if (permanent) {
+            state.wasRunning = false;
+        }
 
         log.info("[bridge] Stopped");
 
         if (options.onStop) {
             options.onStop();
         }
+    };
+
+    /**
+     * Close the bridge and clean up all resources.
+     */
+    const close = async (): Promise<void> => {
+        if (state.unsubscribeSource) {
+            state.unsubscribeSource();
+            state.unsubscribeSource = null;
+        }
+        if (state.unsubscribeTarget) {
+            state.unsubscribeTarget();
+            state.unsubscribeTarget = null;
+        }
+        await stop(true);
     };
 
     /**
@@ -310,9 +369,25 @@ export const createBridge = (options: BridgeOptions): Bridge => {
         metrics: getMetrics(),
     });
 
+    // Subscribe to reconnection events from both connections
+    state.unsubscribeSource = options.source.onReconnect(() => {
+        handleReconnect().catch((err) => {
+            const message = err instanceof Error ? err.message : String(err);
+            log.error("[bridge] Source reconnect handler error:", message);
+        });
+    });
+
+    state.unsubscribeTarget = options.target.onReconnect(() => {
+        handleReconnect().catch((err) => {
+            const message = err instanceof Error ? err.message : String(err);
+            log.error("[bridge] Target reconnect handler error:", message);
+        });
+    });
+
     return {
         start,
-        stop,
+        stop: () => stop(true),
+        close,
         isRunning,
         getMetrics,
         getState,

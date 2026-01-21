@@ -4,6 +4,9 @@
  * This example demonstrates how to create a resilient RabbitMQ consumer
  * that receives messages from a queue with automatic recovery.
  *
+ * The consumer automatically resumes consuming when the connection is
+ * restored after a disconnect, if it was previously active.
+ *
  * Run with: deno run --allow-net --allow-env examples/consumer.ts
  */
 
@@ -72,7 +75,7 @@ async function main() {
 
     Deno.addSignalListener("SIGINT", async () => {
         console.log("\nShutting down...");
-        await consumer.stop();
+        await consumer.close();
         await connection.close();
         console.log("Goodbye!");
         Deno.exit(0);

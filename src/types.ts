@@ -123,6 +123,11 @@ export interface Metrics {
 }
 
 /**
+ * Unsubscribe function returned by event subscriptions.
+ */
+export type Unsubscribe = () => void;
+
+/**
  * A resilient connection to RabbitMQ.
  */
 export interface ResilientConnection {
@@ -140,6 +145,8 @@ export interface ResilientConnection {
     readonly close: () => Promise<void>;
     /** Get current metrics */
     readonly getMetrics: () => Metrics;
+    /** Subscribe to reconnection events. Returns unsubscribe function. */
+    readonly onReconnect: (callback: () => void) => Unsubscribe;
 }
 
 /**
@@ -169,6 +176,8 @@ export interface Consumer {
     readonly start: () => Promise<void>;
     /** Stop consuming messages */
     readonly stop: () => Promise<void>;
+    /** Close the consumer and clean up resources */
+    readonly close: () => Promise<void>;
     /** Check if consumer is active */
     readonly isActive: () => boolean;
     /** Get consumer metrics */
@@ -245,6 +254,8 @@ export interface Bridge {
     readonly start: () => Promise<boolean>;
     /** Stop the bridge */
     readonly stop: () => Promise<void>;
+    /** Close the bridge and clean up all resources */
+    readonly close: () => Promise<void>;
     /** Check if bridge is running */
     readonly isRunning: () => boolean;
     /** Get bridge metrics */

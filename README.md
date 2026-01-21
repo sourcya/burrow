@@ -133,6 +133,40 @@ console.log(bridge.getMetrics());
 await bridge.stop();
 ```
 
+### Auto-Reconnection
+
+All components (Publisher, Consumer, Bridge) automatically recover when the connection is restored:
+
+```typescript
+// Publishers auto-recover their channel and exchange
+const publisher = await createPublisher(conn, { exchange: "events" });
+// If connection drops and reconnects, publisher automatically re-creates its channel
+
+// Consumers auto-resume if they were active
+const consumer = await createConsumer(conn, {
+  queue: "my-queue",
+  onMessage: async (msg) => console.log("Received:", msg.content.toString()),
+});
+await consumer.start();
+// If connection drops and reconnects, consumer automatically resumes
+
+// Bridge auto-restarts when both connections are restored
+const bridge = createBridge({ source, target, exchanges: ["events"] });
+await bridge.start();
+// If either connection drops and both reconnect, bridge automatically restarts
+```
+
+You can also subscribe to reconnection events manually:
+
+```typescript
+const unsubscribe = conn.onReconnect(() => {
+  console.log("Connection restored! Doing custom recovery...");
+});
+
+// Later, to stop listening:
+unsubscribe();
+```
+
 ### Connection Metrics
 
 ```typescript
@@ -187,9 +221,18 @@ Creates a resilient connection to RabbitMQ.
 - `onDisconnect` - Callback when disconnected
 - `onReconnecting` - Callback when reconnecting
 
+**Methods:**
+- `isConnected()` - Check if connected
+- `getState()` - Get connection state
+- `createChannel()` - Create a regular channel
+- `createConfirmChannel()` - Create a confirm channel
+- `getMetrics()` - Get connection metrics
+- `onReconnect(callback)` - Subscribe to reconnection events, returns unsubscribe function
+- `close()` - Close connection gracefully
+
 ### `createPublisher(connection, options)`
 
-Creates a publisher for sending messages.
+Creates a publisher for sending messages. Auto-recovers on reconnect.
 
 **Options:**
 - `exchange` - Exchange name (required)
@@ -198,9 +241,15 @@ Creates a publisher for sending messages.
 - `deliveryMode` - 1=non-persistent, 2=persistent (default: 2)
 - `contentType` - Content type (default: "application/json")
 
+**Methods:**
+- `publish(routingKey, content)` - Publish a message
+- `isReady()` - Check if publisher is ready
+- `getMetrics()` - Get publish metrics
+- `close()` - Close the publisher
+
 ### `createConsumer(connection, options)`
 
-Creates a consumer for receiving messages.
+Creates a consumer for receiving messages. Auto-resumes on reconnect if was active.
 
 **Options:**
 - `queue` - Queue name (required)
@@ -211,9 +260,16 @@ Creates a consumer for receiving messages.
 - `onMessage` - Message handler (required)
 - `onError` - Error handler (optional)
 
+**Methods:**
+- `start()` - Start consuming
+- `stop()` - Stop consuming
+- `close()` - Close consumer and clean up
+- `isActive()` - Check if consuming
+- `getMetrics()` - Get consume metrics
+
 ### `createBridge(options)`
 
-Creates a bridge for forwarding messages between two brokers.
+Creates a bridge for forwarding messages between two brokers. Auto-restarts on reconnect.
 
 **Options:**
 - `source` - Source connection (required)
@@ -225,6 +281,14 @@ Creates a bridge for forwarding messages between two brokers.
 - `logEveryNMessages` - Log stats interval (default: 100, 0 to disable)
 - `onStart` - Callback when bridge starts
 - `onStop` - Callback when bridge stops
+
+**Methods:**
+- `start()` - Start forwarding
+- `stop()` - Stop forwarding
+- `close()` - Close bridge and clean up
+- `isRunning()` - Check if running
+- `getMetrics()` - Get bridge metrics
+- `getState()` - Get full bridge state
 
 ## License
 
