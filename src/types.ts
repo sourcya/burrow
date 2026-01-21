@@ -186,3 +186,69 @@ export interface Logger {
     /** Log error message */
     readonly error: (...args: unknown[]) => void;
 }
+
+/**
+ * Options for creating a bridge between two brokers.
+ */
+export interface BridgeOptions {
+    /** Source connection to consume from */
+    readonly source: ResilientConnection;
+    /** Target connection to publish to */
+    readonly target: ResilientConnection;
+    /** List of exchanges to bridge */
+    readonly exchanges: readonly string[];
+    /** Prefetch count for consumer (default: 50) */
+    readonly prefetch?: number;
+    /** Queue name prefix (default: "bridge_") */
+    readonly queuePrefix?: string;
+    /** Message delivery mode: 1=non-persistent, 2=persistent (default: 2) */
+    readonly deliveryMode?: 1 | 2;
+    /** Log stats every N messages (default: 100, 0 to disable) */
+    readonly logEveryNMessages?: number;
+    /** Callback when bridge starts forwarding */
+    readonly onStart?: () => void;
+    /** Callback when bridge stops */
+    readonly onStop?: () => void;
+}
+
+/**
+ * Metrics specific to bridge operations.
+ */
+export interface BridgeMetrics {
+    /** Number of messages successfully forwarded */
+    readonly messagesForwarded: number;
+    /** Number of messages that failed to forward */
+    readonly messagesFailed: number;
+    /** Timestamp of last forwarded message */
+    readonly lastMessageAt: Date | null;
+}
+
+/**
+ * Current state of a bridge.
+ */
+export interface BridgeState {
+    /** Whether source connection is connected */
+    readonly sourceConnected: boolean;
+    /** Whether target connection is connected */
+    readonly targetConnected: boolean;
+    /** Whether bridge is actively forwarding */
+    readonly isRunning: boolean;
+    /** Bridge metrics */
+    readonly metrics: BridgeMetrics;
+}
+
+/**
+ * A bridge for forwarding messages between two RabbitMQ brokers.
+ */
+export interface Bridge {
+    /** Start the bridge */
+    readonly start: () => Promise<boolean>;
+    /** Stop the bridge */
+    readonly stop: () => Promise<void>;
+    /** Check if bridge is running */
+    readonly isRunning: () => boolean;
+    /** Get bridge metrics */
+    readonly getMetrics: () => BridgeMetrics;
+    /** Get full bridge state */
+    readonly getState: () => BridgeState;
+}

@@ -46,6 +46,10 @@ export type {
     Publisher,
     Consumer,
     Logger,
+    BridgeOptions,
+    BridgeMetrics,
+    BridgeState,
+    Bridge,
 } from "./src/types.ts";
 
 // Logger
@@ -63,3 +67,6 @@ export { createPublisher } from "./src/publisher.ts";
 
 // Consumer
 export { createConsumer } from "./src/consumer.ts";
+
+// Bridge
+export { createBridge } from "./src/bridge.ts";
