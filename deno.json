@@ -9,7 +9,7 @@
   },
   "publish": {
     "include": ["mod.ts", "src/**/*.ts", "README.md", "LICENSE"],
-    "exclude": ["tests/**/*.ts", "package.json", "tsconfig.json", "package-lock.json"]
+    "exclude": ["tests/**/*.ts"]
   },
   "compilerOptions": {
     "strict": true,
