@@ -1,0 +1,28 @@
+name: Publish @sourcya/burrow on JSR
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Type check
+        run: deno check mod.ts src/**/*.ts
+
+      - name: Run tests
+        run: deno test tests/
+
+      - name: Publish to JSR
+        run: npx jsr publish
