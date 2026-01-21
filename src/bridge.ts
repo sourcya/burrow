@@ -36,6 +36,7 @@ interface BridgeInternalState {
     lastErrorLogReset: number;
     unsubscribeSource: Unsubscribe | null;
     unsubscribeTarget: Unsubscribe | null;
+    channelClosedLogged: boolean;
 }
 
 const ERROR_LOG_LIMIT = 10;
@@ -81,6 +82,7 @@ export const createBridge = (options: BridgeOptions): Bridge => {
         lastErrorLogReset: Date.now(),
         unsubscribeSource: null,
         unsubscribeTarget: null,
+        channelClosedLogged: false,
     };
 
     /**
@@ -176,7 +178,8 @@ export const createBridge = (options: BridgeOptions): Bridge => {
             const isChannelClosed = message.includes("Channel closed") || message.includes("channel closed");
 
             if (isChannelClosed) {
-                if (shouldLogError()) {
+                if (!state.channelClosedLogged) {
+                    state.channelClosedLogged = true;
                     log.warn(`[bridge] Channel closed, messages will be redelivered on reconnect`);
                 }
                 return;
@@ -274,6 +277,7 @@ export const createBridge = (options: BridgeOptions): Bridge => {
 
         state.isRunning = true;
         state.wasRunning = true;
+        state.channelClosedLogged = false;
         log.info("[bridge] Started - forwarding messages");
 
         if (options.onStart) {
