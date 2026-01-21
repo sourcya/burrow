@@ -1,13 +1,13 @@
 /**
  * Bridge Example
  *
- * This example demonstrates how to create a message bridge that consumes
- * messages from one RabbitMQ broker and publishes them to another.
+ * This example demonstrates how to create a message bridge that forwards
+ * messages from one RabbitMQ broker to another using createBridge.
  *
  * Run with: deno run --allow-net --allow-env examples/bridge.ts
  */
 
-import { createConnection, createConsumer, createPublisher } from "../mod.ts";
+import { createConnection, createBridge } from "../mod.ts";
 
 const SOURCE_BROKER = {
     hostname: Deno.env.get("SOURCE_HOST") || "localhost",
@@ -23,20 +23,14 @@ const TARGET_BROKER = {
     password: Deno.env.get("TARGET_PASS") || "guest",
 };
 
-const EXCHANGE = Deno.env.get("EXCHANGE") || "events";
-const QUEUE = Deno.env.get("QUEUE") || "bridge-queue";
-const ROUTING_KEY = Deno.env.get("ROUTING_KEY") || "#";
+const EXCHANGES = (Deno.env.get("EXCHANGES") || "events,notifications").split(",");
 
 async function main() {
     console.log("Creating source connection...");
 
-    const sourceConnection = await createConnection({
+    const source = await createConnection({
         connection: SOURCE_BROKER,
-        reconnect: {
-            initialDelayMs: 1000,
-            maxDelayMs: 30000,
-            multiplier: 2,
-        },
+        reconnect: { initialDelayMs: 1000, maxDelayMs: 30000, multiplier: 2 },
         onConnect: () => console.log("[source] Connected"),
         onDisconnect: () => console.log("[source] Disconnected"),
         onReconnecting: (attempt) => console.log(`[source] Reconnecting (attempt ${attempt})...`),
@@ -44,84 +38,48 @@ async function main() {
 
     console.log("Creating target connection...");
 
-    const targetConnection = await createConnection({
+    const target = await createConnection({
         connection: TARGET_BROKER,
-        reconnect: {
-            initialDelayMs: 1000,
-            maxDelayMs: 30000,
-            multiplier: 2,
-        },
+        reconnect: { initialDelayMs: 1000, maxDelayMs: 30000, multiplier: 2 },
         onConnect: () => console.log("[target] Connected"),
         onDisconnect: () => console.log("[target] Disconnected"),
         onReconnecting: (attempt) => console.log(`[target] Reconnecting (attempt ${attempt})...`),
     });
 
-    console.log("Creating publisher on target...");
+    console.log("Creating bridge...");
 
-    const publisher = await createPublisher(targetConnection, {
-        exchange: EXCHANGE,
-        exchangeType: "topic",
-        durable: true,
-        deliveryMode: 2,
-    });
-
-    console.log("Creating consumer on source...");
-
-    let forwarded = 0;
-    let failed = 0;
-
-    const consumer = await createConsumer(sourceConnection, {
-        queue: QUEUE,
-        exchange: EXCHANGE,
-        routingKey: ROUTING_KEY,
-        durable: true,
+    const bridge = createBridge({
+        source,
+        target,
+        exchanges: EXCHANGES,
         prefetch: 50,
-        onMessage: async (msg) => {
-            const routingKey = msg.fields.routingKey;
-            const content = msg.content;
-
-            try {
-                await publisher.publish(routingKey, content.toString());
-                forwarded++;
-                console.log(`Forwarded [${routingKey}] (${forwarded} total)`);
-            } catch (error) {
-                failed++;
-                console.error(`Failed to forward [${routingKey}]:`, error);
-                throw error;
-            }
-        },
-        onError: (error, msg) => {
-            console.error(`Error forwarding message:`, error.message);
-            if (msg) {
-                console.error(`  Routing key: ${msg.fields.routingKey}`);
-            }
-        },
+        deliveryMode: 2,
+        logEveryNMessages: 100,
+        onStart: () => console.log("[bridge] Started forwarding"),
+        onStop: () => console.log("[bridge] Stopped"),
     });
 
-    await consumer.start();
+    await bridge.start();
 
     console.log("\n=== Bridge Configuration ===");
     console.log(`Source: ${SOURCE_BROKER.hostname}:${SOURCE_BROKER.port}`);
     console.log(`Target: ${TARGET_BROKER.hostname}:${TARGET_BROKER.port}`);
-    console.log(`Exchange: ${EXCHANGE}`);
-    console.log(`Queue: ${QUEUE}`);
-    console.log(`Routing Key: ${ROUTING_KEY}`);
+    console.log(`Exchanges: ${EXCHANGES.join(", ")}`);
     console.log("============================\n");
 
     const metricsInterval = setInterval(() => {
-        const sourceMetrics = sourceConnection.getMetrics();
-        const targetMetrics = targetConnection.getMetrics();
-        console.log(`[metrics] forwarded=${forwarded}, failed=${failed}, source=${sourceMetrics.connectionState}, target=${targetMetrics.connectionState}`);
+        const state = bridge.getState();
+        console.log(`[metrics] forwarded=${state.metrics.messagesForwarded}, failed=${state.metrics.messagesFailed}, source=${state.sourceConnected}, target=${state.targetConnected}`);
     }, 10000);
 
     Deno.addSignalListener("SIGINT", async () => {
         console.log("\nShutting down bridge...");
         clearInterval(metricsInterval);
-        await consumer.stop();
-        await publisher.close();
-        await sourceConnection.close();
-        await targetConnection.close();
-        console.log(`Final stats: forwarded=${forwarded}, failed=${failed}`);
+        await bridge.stop();
+        await source.close();
+        await target.close();
+        const metrics = bridge.getMetrics();
+        console.log(`Final stats: forwarded=${metrics.messagesForwarded}, failed=${metrics.messagesFailed}`);
         console.log("Goodbye!");
         Deno.exit(0);
     });

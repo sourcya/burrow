@@ -97,6 +97,42 @@ await consumer.start();
 await consumer.stop();
 ```
 
+### Creating a Bridge
+
+```typescript
+import { createConnection, createBridge } from "@sourcya/burrow";
+
+const source = await createConnection({
+  connection: { hostname: "broker1.example.com", port: 5672 },
+});
+
+const target = await createConnection({
+  connection: { hostname: "broker2.example.com", port: 5672 },
+});
+
+const bridge = createBridge({
+  source,
+  target,
+  exchanges: ["events", "notifications"],
+  prefetch: 50,
+  deliveryMode: 2,
+  logEveryNMessages: 100,
+});
+
+await bridge.start();
+
+// Get bridge state
+console.log(bridge.getState());
+// { sourceConnected: true, targetConnected: true, isRunning: true, metrics: {...} }
+
+// Get metrics
+console.log(bridge.getMetrics());
+// { messagesForwarded: 100, messagesFailed: 0, lastMessageAt: Date }
+
+// Stop the bridge
+await bridge.stop();
+```
+
 ### Connection Metrics
 
 ```typescript
@@ -174,6 +210,21 @@ Creates a consumer for receiving messages.
 - `prefetch` - Prefetch count (default: 10)
 - `onMessage` - Message handler (required)
 - `onError` - Error handler (optional)
+
+### `createBridge(options)`
+
+Creates a bridge for forwarding messages between two brokers.
+
+**Options:**
+- `source` - Source connection (required)
+- `target` - Target connection (required)
+- `exchanges` - List of exchanges to bridge (required)
+- `prefetch` - Prefetch count (default: 50)
+- `queuePrefix` - Queue name prefix (default: "bridge_")
+- `deliveryMode` - 1=non-persistent, 2=persistent (default: 2)
+- `logEveryNMessages` - Log stats interval (default: 100, 0 to disable)
+- `onStart` - Callback when bridge starts
+- `onStop` - Callback when bridge stops
 
 ## License
 

@@ -4,7 +4,7 @@
  * @module
  * @example
  * ```typescript
- * import { createConnection, createPublisher, createConsumer } from "@sourcya/burrow";
+ * import { createConnection, createPublisher, createConsumer, createBridge } from "@sourcya/burrow";
  *
  * // Create a resilient connection
  * const conn = await createConnection({
@@ -27,8 +27,19 @@
  * });
  * await consumer.start();
  *
+ * // Create a bridge between two brokers
+ * const source = await createConnection({ connection: { hostname: "broker1" } });
+ * const target = await createConnection({ connection: { hostname: "broker2" } });
+ * const bridge = createBridge({
+ *   source,
+ *   target,
+ *   exchanges: ["events", "notifications"],
+ * });
+ * await bridge.start();
+ *
  * // Get metrics
  * console.log(conn.getMetrics());
+ * console.log(bridge.getState());
  * ```
  */
 
