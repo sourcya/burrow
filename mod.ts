@@ -4,7 +4,7 @@
  * @module
  * @example
  * ```typescript
- * import { createConnection, createPublisher, createConsumer } from "@chyi/burrow";
+ * import { createConnection, createPublisher, createConsumer } from "@sourcya/burrow";
  *
  * // Create a resilient connection
  * const conn = await createConnection({
