@@ -18,6 +18,9 @@ jobs:
         with:
           deno-version: v2.x
 
+      - name: Install dependencies
+        run: deno install
+
       - name: Type check
         run: deno check mod.ts src/**/*.ts
 
