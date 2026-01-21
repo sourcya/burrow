@@ -1,6 +1,6 @@
 {
   "name": "@sourcya/burrow",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Resilient RabbitMQ client with auto-reconnect, retries, and metrics",
   "type": "module",
   "main": "./dist/mod.js",
