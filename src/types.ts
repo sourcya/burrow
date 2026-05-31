@@ -67,6 +67,25 @@ export interface PublisherOptions {
 }
 
 /**
+ * Additional amqplib queue options passed through to assertQueue.
+ * Useful for dead-letter exchanges, TTL, max length, etc.
+ */
+export interface QueueOptions {
+    /** Dead-letter exchange name */
+    readonly deadLetterExchange?: string;
+    /** Dead-letter routing key */
+    readonly deadLetterRoutingKey?: string;
+    /** Per-message TTL in milliseconds */
+    readonly messageTtl?: number;
+    /** Maximum number of messages in the queue */
+    readonly maxLength?: number;
+    /** Maximum total size of messages in bytes */
+    readonly maxLengthBytes?: number;
+    /** Queue expires after N milliseconds of disuse */
+    readonly expires?: number;
+}
+
+/**
  * Options for creating a consumer.
  */
 export interface ConsumerOptions {
@@ -74,24 +93,45 @@ export interface ConsumerOptions {
     readonly queue: string;
     /** Exchange to bind the queue to (optional) */
     readonly exchange?: string;
+    /** Exchange type (default: "topic") */
+    readonly exchangeType?: "direct" | "topic" | "fanout" | "headers";
     /** Routing key pattern for binding (default: "#") */
     readonly routingKey?: string;
     /** Whether queue is durable (default: true) */
     readonly durable?: boolean;
+    /** Additional queue options (DLX, TTL, etc.) */
+    readonly queueOptions?: QueueOptions;
     /** Prefetch count (default: 10) */
     readonly prefetch?: number;
-    /** Message handler function */
+    /**
+     * When true, the handler receives `(msg, channel)` and is responsible
+     * for calling `channel.ack(msg)` or `channel.nack(msg, ...)` itself.
+     * When false (default), messages are auto-acked on success and
+     * auto-nacked on handler error.
+     */
+    readonly manualAck?: boolean;
+    /** Message handler function (auto-ack mode) */
     readonly onMessage: MessageHandler;
+    /** Manual-ack message handler — used when `manualAck: true` */
+    readonly onManualMessage?: ManualAckMessageHandler;
     /** Error handler function */
     readonly onError?: (error: Error, msg?: ConsumeMessage) => void;
 }
 
 /**
- * Handler function for processing consumed messages.
+ * Handler function for processing consumed messages (auto-ack mode).
  * @param msg - The consumed message
  * @returns Promise that resolves when message is processed, or rejects to nack
  */
 export type MessageHandler = (msg: ConsumeMessage) => Promise<void>;
+
+/**
+ * Handler function for manual-ack mode. The handler receives the channel
+ * and is responsible for ack/nack.
+ * @param msg - The consumed message
+ * @param channel - The AMQP channel for manual ack/nack
+ */
+export type ManualAckMessageHandler = (msg: ConsumeMessage, channel: Channel) => Promise<void>;
 
 /**
  * Current state of a connection.

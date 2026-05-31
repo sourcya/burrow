@@ -57,6 +57,8 @@ export type {
     PublisherOptions,
     ConsumerOptions,
     MessageHandler,
+    ManualAckMessageHandler,
+    QueueOptions,
     ConsumeMessage,
     ConnectionState,
     Metrics,

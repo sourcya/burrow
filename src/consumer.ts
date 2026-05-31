@@ -97,12 +97,23 @@ export const createConsumer = async (
 
         await state.channel.prefetch(opts.prefetch!);
 
-        await state.channel.assertQueue(opts.queue, {
+        const queueArgs: Record<string, unknown> = {
             durable: opts.durable,
-        });
+        };
+        if (opts.queueOptions) {
+            const qo = opts.queueOptions;
+            if (qo.deadLetterExchange !== undefined) queueArgs.deadLetterExchange = qo.deadLetterExchange;
+            if (qo.deadLetterRoutingKey !== undefined) queueArgs.deadLetterRoutingKey = qo.deadLetterRoutingKey;
+            if (qo.messageTtl !== undefined) queueArgs.messageTtl = qo.messageTtl;
+            if (qo.maxLength !== undefined) queueArgs.maxLength = qo.maxLength;
+            if (qo.maxLengthBytes !== undefined) queueArgs.maxLengthBytes = qo.maxLengthBytes;
+            if (qo.expires !== undefined) queueArgs.expires = qo.expires;
+        }
+        await state.channel.assertQueue(opts.queue, queueArgs);
 
         if (opts.exchange) {
-            await state.channel.assertExchange(opts.exchange, "topic", {
+            const exchangeType = opts.exchangeType ?? "topic";
+            await state.channel.assertExchange(opts.exchange, exchangeType, {
                 durable: opts.durable,
             });
             await state.channel.bindQueue(opts.queue, opts.exchange, opts.routingKey!);
@@ -142,6 +153,28 @@ export const createConsumer = async (
      */
     const handleMessage = async (msg: ConsumeMessage | null): Promise<void> => {
         if (!msg || !state.channel) return;
+
+        if (opts.manualAck && opts.onManualMessage) {
+            try {
+                await opts.onManualMessage(msg, state.channel);
+                state.messagesConsumed++;
+                state.lastConsumeAt = new Date();
+            } catch (err) {
+                state.messagesConsumeFailed++;
+                const error = err instanceof Error ? err : new Error(String(err));
+                if (opts.onError) {
+                    opts.onError(error, msg);
+                } else {
+                    log.error(`[burrow:consumer] Message processing failed:`, error.message);
+                }
+                try {
+                    state.channel.nack(msg, false, false);
+                } catch {
+                    // Channel likely closed
+                }
+            }
+            return;
+        }
 
         try {
             await opts.onMessage(msg);

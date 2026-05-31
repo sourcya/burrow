@@ -78,6 +78,7 @@ import { createConsumer } from "@sourcya/burrow";
 const consumer = await createConsumer(conn, {
   queue: "my-queue",
   exchange: "events",
+  exchangeType: "topic",       // default: "topic", also supports "direct", "fanout", "headers"
   routingKey: "user.*",
   prefetch: 10,
   onMessage: async (msg) => {
@@ -95,6 +96,55 @@ await consumer.start();
 
 // Later...
 await consumer.stop();
+```
+
+#### Manual Ack/Nack
+
+When you need full control over message acknowledgment (e.g., routing to a dead-letter exchange),
+use `manualAck: true` with `onManualMessage`:
+
+```typescript
+const consumer = await createConsumer(conn, {
+  queue: "commands-queue",
+  exchange: "commands.exchange",
+  exchangeType: "direct",
+  routingKey: "command.dispatch",
+  manualAck: true,
+  onMessage: async () => {},    // required by type, unused in manual mode
+  onManualMessage: async (msg, channel) => {
+    const payload = JSON.parse(msg.content.toString());
+
+    if (!payload.ready) {
+      // Nack without requeue — routes to dead-letter exchange
+      channel.nack(msg, false, false);
+      return;
+    }
+
+    await processCommand(payload);
+    channel.ack(msg);
+  },
+});
+```
+
+#### Queue Options (DLX, TTL, etc.)
+
+Pass additional queue arguments via `queueOptions`:
+
+```typescript
+const consumer = await createConsumer(conn, {
+  queue: "parking-queue",
+  exchange: "parking.exchange",
+  exchangeType: "direct",
+  routingKey: "park",
+  queueOptions: {
+    deadLetterExchange: "main.exchange",
+    deadLetterRoutingKey: "retry",
+    messageTtl: 60000,        // 60 seconds
+  },
+  onMessage: async (msg) => {
+    // Process parked messages
+  },
+});
 ```
 
 ### Creating a Bridge
@@ -254,10 +304,20 @@ Creates a consumer for receiving messages. Auto-resumes on reconnect if was acti
 **Options:**
 - `queue` - Queue name (required)
 - `exchange` - Exchange to bind to (optional)
+- `exchangeType` - Exchange type: "direct", "topic", "fanout", "headers" (default: "topic")
 - `routingKey` - Routing key pattern (default: "#")
 - `durable` - Durable queue (default: true)
+- `queueOptions` - Additional queue arguments (optional):
+  - `deadLetterExchange` - DLX name
+  - `deadLetterRoutingKey` - DLX routing key
+  - `messageTtl` - Per-message TTL in ms
+  - `maxLength` - Maximum queue length
+  - `maxLengthBytes` - Maximum queue size in bytes
+  - `expires` - Queue expiry in ms of disuse
 - `prefetch` - Prefetch count (default: 10)
-- `onMessage` - Message handler (required)
+- `manualAck` - Enable manual ack/nack mode (default: false)
+- `onMessage` - Message handler, auto-acked on success (required)
+- `onManualMessage` - Manual-ack handler receiving `(msg, channel)` — used when `manualAck: true`
 - `onError` - Error handler (optional)
 
 **Methods:**
