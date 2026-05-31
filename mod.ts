@@ -59,6 +59,7 @@ export type {
     MessageHandler,
     ManualAckMessageHandler,
     QueueOptions,
+    Channel,
     ConsumeMessage,
     ConnectionState,
     Metrics,
